@@ -1,0 +1,231 @@
+#CATEGORY "46" "Core 3" // Custom
+//#CATEGORY "10" // Serial
+//Compiler Directives
+
+#SYMBOL_NAME	"Core 3 UI Test Weather v1.1"
+#DEFAULT_VOLATILE
+#ENABLE_STACK_CHECKING
+#ENABLE_TRACE
+#ENCODING_ASCII
+#OUTPUT_SHIFT 2
+
+//IO Variables
+
+digital_input		_skip_, _skip_,
+					getWeather;			//	pulse to start get weather
+
+string_input		zipCode[10];		//	string input for zip code to get weather 
+
+analog_output		currentCode,        //	analog output to recall code image 
+					forecast1Code,
+					forecast2Code;
+
+string_output		conditionsFor,		//	string outputs for the ui
+					tempFor,
+					dateFor,
+					currentFor,
+					forecast1,
+					forecast1Day,
+					forecast1High,
+					forecast1Low,
+					forecast2,
+					forecast2Day,
+					forecast2High,
+					forecast2Low;
+
+string_parameter	Host[50];			//	String parameter for weather host entry
+integer_parameter	Port;				// 	integer parameter for host port entry
+
+#begin_parameter_properties	Host		//	Parameter Properties for Host Name
+	PropValidUnits = unitString;
+#end_parameter_properties
+
+#begin_parameter_properties	Port		//	Parameter Properties for Port Number
+	PropValidUnits = unitDecimal;
+#end_parameter_properties
+
+
+tcp_client			Yahoo[6000];		//	client definition to get weather
+
+// Global Variables
+
+string	YahooData[6000];				//	string variable to capture buffered data for processing 
+
+string	TempTitle[100],	TempCity[50], TempState[2], TempDate[100], TempConditions[100], TempTemperature[20], Temp1[200], Temp2[200];
+    
+//Functions
+
+function parseYahooData()
+{
+	string workData[500];
+	string foreCastOne[5][50];
+	string extra[50];
+	integer x;
+	
+	x = 0;
+	
+	while(find("\x0A", YahooData))
+	{
+		workData = remove("\x0A", YahooData);
+		
+		if(find("<yweather:location", workData))		// <yweather:location·city="Rockwall"·region="TX"···country="US"/>(LF)
+		{
+			extra = remove("city=\x22", workData);
+			TempCity = left(workData, find("\x22", workData) - 1);
+			
+			extra = remove("region=\x22", workData);
+			TempState = left(workData, find("\x22", workData) - 1);
+			makeString(TempTitle, "%s, %s", TempCity, TempState);	
+		}
+		if(find("<yweather:condition", workData))
+		{
+		  	extra = remove("text=\x22", workData);
+			TempConditions = left(workData, find("\x22", workData) - 1);
+			
+			extra = remove("code=\x22", workData);
+			currentCode = atoi(left(workData, find("\x22", workData) - 1)); 
+			
+			extra = remove("temp=\x22", workData);
+			TempTemperature = left(workData, find("\x22", workData) - 1) + "\xB0";
+			
+			extra = remove("date=\x22", workData);
+			TempDate = left(workData, find("\x22", workData) - 1);
+		} 
+		if(find("<yweather:forecast", workData))
+		{
+			if(x = 0)
+			{
+				x = 1;        
+				extra = remove("day=\x22", workData);
+				foreCastOne[1] = left(workData, find("\x22", workData) - 1);
+				   
+				extra = remove("date=\x22", workData);
+				foreCastOne[2] = left(workData, find("\x22", workData) - 1);
+				
+				extra = remove("low=\x22", workData);
+				foreCastOne[3] = left(workData, find("\x22", workData) - 1); 
+				
+				extra = remove("high=\x22", workData);
+				foreCastOne[4] = left(workData, find("\x22", workData) - 1);
+				
+				extra = remove("text=\x22", workData);
+				foreCastOne[5] = left(workData, find("\x22", workData) - 1); 
+				
+				extra = remove("code=\x22", workData);
+				forecast1Code = atoi(left(workData, find("\x22", workData) - 1)); 
+				makeString(Temp1, "Forecast: %s\r%s",foreCastOne[5], foreCastOne[2]);
+				
+				forecast1 = temp1;
+				forecast1Day = foreCastOne[1];
+				forecast1High = foreCastOne[4] + "\xB0";
+				forecast1Low = foreCastOne[3] + "\xB0";
+			}
+			else if(x = 1)
+			{
+				x = 2;        
+				extra = remove("day=\x22", workData);
+				foreCastOne[1] = left(workData, find("\x22", workData) - 1);
+				   
+				extra = remove("date=\x22", workData);
+				foreCastOne[2] = left(workData, find("\x22", workData) - 1);
+				
+				extra = remove("low=\x22", workData);
+				foreCastOne[3] = left(workData, find("\x22", workData) - 1); 
+				
+				extra = remove("high=\x22", workData);
+				foreCastOne[4] = left(workData, find("\x22", workData) - 1);
+				
+				extra = remove("text=\x22", workData);
+				foreCastOne[5] = left(workData, find("\x22", workData) - 1); 
+				
+				extra = remove("code=\x22", workData);
+				forecast2Code = atoi(left(workData, find("\x22", workData) - 1)); 
+				makeString(Temp2, "Forecast: %s\r%s",foreCastOne[5], foreCastOne[2]);
+				
+				forecast2 = temp2;
+				forecast2Day = foreCastOne[1];
+				forecast2High = foreCastOne[4] + "\xB0";
+				forecast2Low = foreCastOne[3] + "\xB0";			}
+		}
+	}                          
+	
+	conditionsFor = TempTitle;
+	tempFor = TempTemperature;
+	dateFor = TempDate;
+	currentFor = TempConditions;
+}    
+    
+//Events
+  
+change zipCode
+{
+	//print("Current Zip is: [%s]\r[%s]\r", zipCode, time());
+}  
+  
+push	getWeather 						//	Open socket to host.  This is te initial event.  SocketConnectClient function starts the process.
+{
+	signed_integer	err;
+	delay(20);
+    //print("Get Weather: [%s]\r[%s]\r", zipCode, time());
+	if(zipCode = "")
+	{
+	}
+	else
+	{
+		err = socketConnectClient(Yahoo, Host, Port, 0);  //Place your cursor inside the function name and hit F1 for a detailed help file on this function
+	
+		if(err < 0)
+		{
+			trace("Error connecting to host");
+		}
+	}
+}                                         
+
+socketConnect	Yahoo					//	This event occurs when the socket has been properly connected.
+{
+	signed_integer err;
+	string socketString[150];
+	//print("SocketConnect: [%s]\r[%s]\r", zipCode, time());	
+	if(Yahoo.SocketStatus = 2)			//this is to ensure that the socket is happy before you xmit data
+	{                                       
+		makeString(socketString, "GET /forecastrss?u=f&p=%s HTTP/1.1\nHost: %s\n\n", zipCode, Host);
+		err = socketSend(Yahoo, socketString);
+		
+		if(err < 0)
+		{
+			print("SocketSend Error: [%d]\r[%s]\r", err, time());
+		}
+	}
+} 
+
+socketStatus	Yahoo		//this event occurs every time the socket status changes
+{
+	if(Yahoo.SocketStatus = 4 || Yahoo.SocketStatus = 5)  //when either of these status return true, close the socket locally
+	{
+		socketDisconnectClient(Yahoo);
+	}
+}
+
+socketReceive	Yahoo 	//this event occurs when the remote server is sending the requested data to you.  
+{
+	YahooData = gather("</rss>\x0A", Yahoo.SocketRxBuf); //this is a buffer, so you will need to manage it's state.
+	
+	parseYahooData();	//function written to parse the weather data returned by the server
+	socketDisconnectClient(Yahoo); //required when done.  You will be unable to open another socket to the server from this instance of the code unless you run this function.
+	clearBuffer(Yahoo.SocketRxBuf); //clear extra data left in buffer if needed.
+}
+
+function main()
+{                        
+	waitforinitializationcomplete();
+	
+	currentCode = 48;
+	forecast1Code = 48;
+	forecast2Code = 48;
+    
+    YahooData = "";       
+	TempTitle = "";
+	TempDate = "";
+	TempConditions = "";
+	TempTemperature = "";	
+}
